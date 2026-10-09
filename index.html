@@ -1,0 +1,421 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Street View</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #111;
+            color: white;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 20px;
+        }
+
+        #viewer {
+            position: relative;
+            width: 800px;
+            max-width: 95%;
+            margin: auto;
+            overflow: hidden;
+        }
+
+        #photo {
+            width: 100%;
+            display: block;
+            transition: opacity 0.35s ease, transform 0.45s ease;
+        }
+
+        #photo.moving {
+            opacity: 0;
+            transform: scale(1.06);
+        }
+
+        #hotspots {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .hotspot {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            transform: translate(-50%, -50%) rotate(var(--rotation, 0deg));
+            border: none;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.75);
+            color: black;
+            font-size: 30px;
+            font-weight: bold;
+            cursor: pointer;
+            pointer-events: auto;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .hotspot:hover {
+            transform: translate(-50%, -50%) rotate(var(--rotation, 0deg)) scale(1.15);
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        #status {
+            margin: 10px;
+            color: #aaa;
+        }
+
+        #error {
+            color: #ff7777;
+            margin: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Campus Street View</h1>
+
+    <div id="viewer">
+        <img id="photo" src="floor3/0.jpeg" alt="Campus hallway">
+        <div id="hotspots"></div>
+    </div>
+
+    <div id="status">Loading photo...</div>
+    <div id="error"></div>
+
+    <script>
+        // Load photos 0 to 36, excluding the intentionally missing 14.jpeg.
+        const photoIds = Array.from(
+            { length: 37 },
+            (_, i) => i
+        ).filter(id => id !== 14);
+
+        const photos = photoIds.map(id => ({
+            id: id,
+            src: `floor3/${id}.jpeg`
+        }));
+
+        let currentPhoto = 0;
+        let moving = false;
+
+        const photo = document.getElementById("photo");
+        const hotspots = document.getElementById("hotspots");
+        const status = document.getElementById("status");
+        const error = document.getElementById("error");
+
+        // x = horizontal position (%)
+        // y = vertical position (%)
+        // target = destination photo ID
+        // arrow = displayed arrow
+        // rotation = optional angle in degrees
+
+        const navigation = {
+            // PHOTO 0
+            0: [
+                { x: 36, y: 52, target: 2, arrow: "▲" },
+                { x: 78, y: 60, target: 1, arrow: "▶" }
+            ],
+
+            // PHOTO 1
+            1: [
+                { x: 25, y: 65, target: 2, arrow: "◀" },
+                { x: 78, y: 60, target: 0, arrow: "▶" }
+            ],
+
+            // PHOTO 2
+            2: [
+                { x: 50, y: 72, target: 3, arrow: "▲" },
+                { x: 50, y: 85, target: 0, arrow: "▼" }
+            ],
+
+            // PHOTO 3
+            3: [
+                { x: 65, y: 65, target: 4, arrow: "▶", rotation: -60 },
+                { x: 50, y: 85, target: 2, arrow: "▼" }
+            ],
+
+            // PHOTO 4
+            4: [
+                { x: 50, y: 72, target: 5, arrow: "▲" },
+                { x: 50, y: 85, target: 3, arrow: "▼" }
+            ],
+
+            // PHOTO 5
+            5: [
+                { x: 50, y: 72, target: 6, arrow: "▲" },
+                { x: 50, y: 85, target: 4, arrow: "▼" }
+            ],
+
+            // PHOTO 6
+            6: [
+                { x: 50, y: 72, target: 7, arrow: "▲" },
+                { x: 50, y: 85, target: 5, arrow: "▼" }
+            ],
+
+            // PHOTO 7
+            7: [
+                { x: 50, y: 72, target: 8, arrow: "▲" },
+                { x: 80, y: 60, target: 30, arrow: "▶" }
+            ],
+
+            // PHOTO 8
+            8: [
+                { x: 50, y: 72, target: 9, arrow: "▲" },
+                { x: 50, y: 85, target: 7, arrow: "▼" }
+            ],
+
+            // PHOTO 9
+            9: [
+                { x: 75, y: 65, target: 10, arrow: "▶" },
+                { x: 50, y: 85, target: 8, arrow: "▼" }
+            ],
+
+            // PHOTO 10
+            10: [
+                { x: 50, y: 72, target: 12, arrow: "▲" },
+                { x: 80, y: 60, target: 11, arrow: "▶" },
+                { x: 50, y: 85, target: 9, arrow: "▼" }
+            ],
+
+            // PHOTO 11
+            11: [
+                { x: 80, y: 60, target: 10, arrow: "▶" },
+                { x: 25, y: 65, target: 12, arrow: "◀" }
+            ],
+
+            // PHOTO 12
+            12: [
+                { x: 43, y: 70, target: 13, arrow: "▲" },
+                { x: 43, y: 85, target: 10, arrow: "▼" }
+            ],
+
+            // PHOTO 13
+            13: [
+                { x: 50, y: 72, target: 15, arrow: "▲", rotation: -35 },
+                { x: 50, y: 85, target: 12, arrow: "▼" }
+            ],
+
+            // PHOTO 15
+            15: [
+                { x: 50, y: 72, target: 16, arrow: "▲" },
+                { x: 50, y: 85, target: 13, arrow: "▼" }
+            ],
+
+            // PHOTO 16
+            16: [
+                { x: 50, y: 72, target: 17, arrow: "▲" },
+                { x: 50, y: 85, target: 15, arrow: "▼" }
+            ],
+
+            // PHOTO 17
+            17: [
+                { x: 50, y: 72, target: 19, arrow: "▲" },
+                { x: 80, y: 60, target: 18, arrow: "▶" },
+                { x: 50, y: 85, target: 16, arrow: "▼" }
+            ],
+
+            // PHOTO 18
+            18: [
+                { x: 80, y: 60, target: 17, arrow: "▶" },
+                { x: 25, y: 65, target: 19, arrow: "◀" }
+            ],
+
+            // PHOTO 19
+            19: [
+                { x: 50, y: 72, target: 20, arrow: "▲" },
+                { x: 50, y: 85, target: 17, arrow: "▼" }
+            ],
+
+            // PHOTO 20
+            20: [
+                { x: 75, y: 65, target: 21, arrow: "▶" },
+                { x: 50, y: 85, target: 19, arrow: "▼" }
+            ],
+
+            // PHOTO 21
+            21: [
+                { x: 50, y: 72, target: 22, arrow: "▲" },
+                { x: 50, y: 85, target: 20, arrow: "▼" }
+            ],
+
+            // PHOTO 22
+            22: [
+                { x: 50, y: 72, target: 24, arrow: "▲" },
+                { x: 80, y: 60, target: 23, arrow: "▶" },
+                { x: 50, y: 85, target: 21, arrow: "▼" }
+            ],
+
+            // PHOTO 23
+            23: [],
+
+            // PHOTO 24
+            24: [
+                { x: 25, y: 65, target: 25, arrow: "◀" },
+                { x: 78, y: 65, target: 27, arrow: "▶" },
+                { x: 50, y: 85, target: 22, arrow: "▼" }
+            ],
+
+            // PHOTO 25
+            25: [
+                { x: 50, y: 72, target: 26, arrow: "▲" },
+                { x: 50, y: 85, target: 24, arrow: "▼" }
+            ],
+
+            // PHOTO 26
+            26: [
+                { x: 50, y: 85, target: 25, arrow: "▼" }
+            ],
+
+            // PHOTO 27
+            27: [
+                { x: 78, y: 60, target: 28, arrow: "▶" },
+                { x: 25, y: 65, target: 31, arrow: "◀" },
+                { x: 50, y: 85, target: 24, arrow: "▼" }
+            ],
+
+            // PHOTO 28
+            28: [
+                { x: 50, y: 72, target: 29, arrow: "▲" },
+                { x: 50, y: 85, target: 27, arrow: "▼" }
+            ],
+
+            // PHOTO 29
+            29: [
+                { x: 25, y: 65, target: 30, arrow: "◀" },
+                { x: 50, y: 85, target: 28, arrow: "▼" }
+            ],
+
+            // PHOTO 30
+            30: [
+                { x: 25, y: 65, target: 7, arrow: "◀" },
+                { x: 80, y: 60, target: 6, arrow: "▶" },
+                { x: 50, y: 52, target: 29, arrow: "▲" }
+            ],
+
+            // PHOTO 31
+            31: [
+                { x: 50, y: 72, target: 32, arrow: "▲" },
+                { x: 50, y: 85, target: 27, arrow: "▼" }
+            ],
+
+            // PHOTO 32
+            32: [
+                { x: 50, y: 72, target: 34, arrow: "▲" },
+                { x: 50, y: 85, target: 31, arrow: "▼" }
+            ],
+
+            // PHOTO 33
+            33: [
+                { x: 50, y: 85, target: 32, arrow: "▼" }
+            ],
+
+            // PHOTO 34
+            34: [
+                { x: 50, y: 72, target: 35, arrow: "▲" },
+                { x: 50, y: 85, target: 33, arrow: "▼" }
+            ],
+
+            // PHOTO 35
+            35: [
+                { x: 50, y: 85, target: 34, arrow: "▼" }
+            ],
+
+            // PHOTO 36
+            36: [
+                { x: 50, y: 85, target: 35, arrow: "▼" }
+            ]
+        };
+
+        function showArrows() {
+            hotspots.innerHTML = "";
+
+            const currentNavigation = navigation[currentPhoto] || [];
+
+            currentNavigation.forEach(function(point) {
+                const button = document.createElement("button");
+
+                button.className = "hotspot";
+                button.innerText = point.arrow;
+                button.style.left = point.x + "%";
+                button.style.top = point.y + "%";
+
+                button.style.setProperty(
+                    "--rotation",
+                    (point.rotation || 0) + "deg"
+                );
+
+                button.title = `Go to photo ${point.target}`;
+
+                button.onclick = function() {
+                    moveTo(point.target);
+                };
+
+                hotspots.appendChild(button);
+            });
+
+            const position = photos.findIndex(
+                item => item.id === currentPhoto
+            );
+
+            status.innerText =
+                `Photo ${currentPhoto} · ${position + 1} of ${photos.length}`;
+        }
+
+        function moveTo(target) {
+            if (moving || target === currentPhoto) {
+                return;
+            }
+
+            const destination = photos.find(
+                item => item.id === target
+            );
+
+            if (!destination) {
+                error.innerText = `Photo ${target} does not exist.`;
+                return;
+            }
+
+            moving = true;
+            error.innerText = "";
+
+            photo.classList.add("moving");
+
+            setTimeout(function() {
+                photo.onload = function() {
+                    currentPhoto = target;
+                    photo.classList.remove("moving");
+                    showArrows();
+                    moving = false;
+                };
+
+                photo.onerror = function() {
+                    photo.classList.remove("moving");
+
+                    error.innerText =
+                        `Could not load ${destination.src}. Check the filename.`;
+
+                    moving = false;
+                };
+
+                photo.src = destination.src;
+            }, 350);
+        }
+
+        photo.onload = function() {
+            showArrows();
+        };
+
+        photo.onerror = function() {
+            status.innerText = "Photo could not be loaded.";
+            error.innerText = "Check that floor3/0.jpeg exists.";
+        };
+
+        photo.src = photos[0].src;
+    </script>
+</body>
+</html>
+```
